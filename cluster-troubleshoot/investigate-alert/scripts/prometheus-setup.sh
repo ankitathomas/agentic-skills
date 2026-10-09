@@ -2,7 +2,7 @@
 # Establish Prometheus access credentials for the session.
 # Prints export commands to stdout for eval.
 #
-# Usage: eval $(bash tools/prometheus-setup.sh)
+# Usage: eval $(bash scripts/prometheus-setup.sh)
 
 SCRIPT_DIR="$(dirname "$0")"
 . "$SCRIPT_DIR/common.sh"

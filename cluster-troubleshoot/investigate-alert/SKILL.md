@@ -28,11 +28,11 @@ description: Investigate one or more firing OpenShift alerts to determine root c
 
 # Tools
 
-The `scripts/` directory contains diagnostic scripts. All output JSON to stdout and return structured error objects on failure, except `prometheus-setup.sh` which prints shell export commands for `eval`. Run `eval $(bash scripts/prometheus-setup.sh)` once per session before using Prometheus tools.
+The `scripts/` directory contains diagnostic scripts. All output JSON to stdout and return structured error objects on failure, except `prometheus-setup.sh` which prints shell export commands for `eval`. Prometheus diagnostic scripts obtain TOKEN and THANOS_URL automatically when either is missing; manual setup is optional, and its exports apply only in the shell where they are evaluated.
 
 ## Prometheus
 
-- `bash scripts/prometheus-setup.sh` — Set TOKEN and THANOS_URL
+- `bash scripts/prometheus-setup.sh` — Print optional TOKEN and THANOS_URL export commands
 - `bash scripts/query-alert.sh <alert_name>` — Firing instances of a named alert with full label sets
 - `bash scripts/fetch-alert-rule.sh <alert_name>` — Alert PromQL expression, thresholds, annotations
 - `bash scripts/prometheus-query.sh '<promql>'` — Instant PromQL query
@@ -59,12 +59,9 @@ The protocol has two phases: **collect evidence first**, then **analyze**. Do no
 
 Determine the scope of the alerts: is it one pod, one node, one namespace, or cluster-wide? This determines which layer to start from and which scripts to prioritize.
 
-### Step 2 — Set up and query the alerts
+### Step 2 — Query the alerts
 
-Configure Prometheus access:
-```bash
-eval $(bash scripts/prometheus-setup.sh)
-```
+Prometheus scripts obtain access credentials automatically if needed.
 
 For each alert provided:
 ```bash

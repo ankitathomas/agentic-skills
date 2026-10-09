@@ -32,7 +32,7 @@ require_command() {
 require_env() {
   local var_name="$1"
   if [[ -z "${!var_name:-}" ]]; then
-    error_json "NOT_CONFIGURED" "$var_name is not set" "Run: eval \$(bash tools/prometheus-setup.sh)"
+    error_json "NOT_CONFIGURED" "$var_name is not set" "Run: eval \$(bash scripts/prometheus-setup.sh)"
   fi
 }
 
@@ -86,6 +86,14 @@ require_json() {
 
 prometheus_get() {
   local path="$1"
+  if [[ -z "${TOKEN:-}" || -z "${THANOS_URL:-}" ]]; then
+    local setup
+    if ! setup=$(bash "$SCRIPT_DIR/prometheus-setup.sh"); then
+      printf '%s\n' "$setup"
+      return 1
+    fi
+    eval "$setup"
+  fi
   require_env TOKEN
   require_env THANOS_URL
 
@@ -105,7 +113,7 @@ prometheus_get() {
 
   if [[ ! -s "$tmpfile" ]]; then
     error_json "PROMETHEUS_ERROR" "No response from Prometheus at ${THANOS_URL}${path}" \
-      "Verify TOKEN and THANOS_URL with: eval \$(bash tools/prometheus-setup.sh)"
+      "Verify TOKEN and THANOS_URL with: eval \$(bash scripts/prometheus-setup.sh)"
   fi
 
   if [[ -n "$http_code" && "$http_code" -ge 400 ]] 2>/dev/null; then
@@ -113,7 +121,7 @@ prometheus_get() {
     body=$(cat "$tmpfile")
     case "$http_code" in
       401) error_json "AUTH_EXPIRED" "Prometheus returned 401 Unauthorized" \
-             "Token may have expired. Re-run: eval \$(bash tools/prometheus-setup.sh)" ;;
+             "Token may have expired. Re-run: eval \$(bash scripts/prometheus-setup.sh)" ;;
       403) error_json "FORBIDDEN" "Prometheus returned 403 Forbidden" \
              "ServiceAccount lacks cluster-monitoring-view ClusterRoleBinding" ;;
       *)   error_json "PROMETHEUS_HTTP_${http_code}" "Prometheus returned HTTP ${http_code}" \

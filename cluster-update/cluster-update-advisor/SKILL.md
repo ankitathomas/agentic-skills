@@ -120,6 +120,11 @@ If additional information or context is needed to classify a finding, these skil
   field (exact match). Flag operators whose product version is End of life or whose
   `openshift_compatibility` does not include the target OCP version.
 
+- **`operator-compatibility`** — Determine operator upgrade requirements for
+  target OCP version compatibility. Use this to identify which operators need
+  upgrades and what upgrade channels/versions are available. Provides concrete
+  upgrade candidates filtered to the most relevant versions.
+
 ### 6. Classify overall recommendation
 
 Aggregate finding classification, and make a decision on the overall assessment:
@@ -175,21 +180,45 @@ The `summary` section reports aggregate counts: `incompatible_with_target`, `man
 
 **Operator scope — only evaluate operators whose `package` matches this list:**
 
-`cluster-logging`, `openshift-gitops-operator`, `kubernetes-nmstate-operator`, `cert-manager-operator`, `local-storage-operator`, `oadp-operator`, `mcg-operator`, `ocs-operator`, `odf-csi-addons-operator`, `odf-operator`, `loki-operator`, `kubevirt-hyperconverged-operator`, `openshift-pipelines-operator-rh`, `metallb-operator`, `devworkspace-operator`, `web-terminal`, `mtv-operator`, `multicluster-engine`, `advanced-cluster-management`, `rhacs-operator`, `compliance-operator`, `nfd`, `quay-operator`, `cluster-observability-operator`, `ocs-client-operator`, `recipe`, `odf-prometheus-operator`, `rook-ceph-operator`, `cephcsi-operator`, `odf-dependencies`, `grafana-operator`, `odf-external-snapshotter-operator`
+`cluster-logging`, `openshift-gitops-operator`, `kubernetes-nmstate-operator`, `openshift-cert-manager-operator`, `local-storage-operator`, `redhat-oadp-operator`, `mcg-operator`, `ocs-operator`, `odf-csi-addons-operator`, `odf-operator`, `loki-operator`, `kubevirt-hyperconverged`, `openshift-pipelines-operator-rh`, `metallb-operator`, `devworkspace-operator`, `web-terminal`, `mtv-operator`, `multicluster-engine`, `advanced-cluster-management`, `rhacs-operator`, `compliance-operator`, `nfd`, `quay-operator`, `cluster-observability-operator`, `ocs-client-operator`, `recipe`, `odf-prometheus-operator`, `rook-ceph-operator`, `cephcsi-operator`, `odf-dependencies`, `grafana-operator`, `odf-external-snapshotter-operator`
 
 Skip any operator not in this list — do not evaluate, upgrade, or report on it.
 
-**Critical operators** (require upgrade before the platform upgrade) are those in the list above where:
-- `summary.incompatible_with_target > 0` — at least one operator is incompatible with the target OCP version
-- The operator's current channel does not support the target OCP version (use `available_channels` to identify a compatible channel)
+**Determining upgrade requirements:**
+
+Use the `operator-compatibility` tool to determine which operators need upgrades:
+
+```bash
+# For OLMv0 operators
+python3 operator-compatibility/check_operator_compatibility.py <target-ocp-version> \
+  --olmv0 <package>:<installed-version>
+
+# For OLMv1 operators
+python3 operator-compatibility/check_operator_compatibility.py <target-ocp-version> \
+  --olmv1 <package>:<installed-version>
+```
+
+**Determine OLM version** from the readiness data:
+- If operator has `installed_csv` and `install_plan_approval` fields, it's **OLMv0** (Subscription-managed)
+- If operator lacks these fields or has `clusterextension` metadata, it's **OLMv1** (ClusterExtension-managed)
+
+The tool returns one of:
+- `{"message": "OK"}` — operator version is already compatible
+- `{"candidates": [...]}` — operator needs upgrade, with available upgrade options
+- `{"error": "..."}` — operator exists but has no compatible versions (blocks upgrade)
+- `{"message": "no package information..."}` — package data not available (non-fatal)
+
+**Critical operators** (require upgrade before the platform upgrade) are those where:
+- The tool returns `candidates` — operator needs upgrade to be compatible
+- The tool returns `error` — operator blocks the upgrade entirely
 - The operator is in an EOL state flagged by the `product-lifecycle` skill
 
 **Do NOT upgrade operators** where:
+- The tool returns `{"message": "OK"}` — already compatible
 - The operator is not in the allowed list above
-- The operator is already compatible with the target OCP version
 - The operator is non-critical and the upgrade is optional
 
-**If a critical operator has no compatible channel in `available_channels`**, the upgrade should NOT proceed. Detail which operators are blocking and why in the Remediation Option.
+**If a critical operator returns an `error` from the compatibility tool**, the upgrade should NOT proceed. Detail which operators are blocking and why in the Remediation Option.
 
 ### 2. Build the plan
 
@@ -205,27 +234,45 @@ Essential validation before any mutations:
 
 #### OLM Operator Upgrades (if needed)
 
-For each critical operator requiring upgrade:
+For each critical operator requiring upgrade, use the upgrade candidates returned by the `operator-compatibility` tool to determine the target channel and version.
+
+**Selecting upgrade candidates:**
+
+The tool returns filtered candidates representing the most relevant upgrade paths:
+- Smallest version larger than current (conservative upgrade)
+- Largest version available (latest upgrade)
+- Smallest version of next minor release
+- Largest patch of current minor release
+
+Choose the **smallest version larger than current** unless:
+- The operator's EOL status requires jumping to a newer minor version
+- The target OCP version requires a specific minimum operator version
+- Multiple channels are present — prefer `stable` over `fast` or version-specific channels
 
 **OLMv0 (Subscription/InstallPlan):**
 
-```bash
-# Update subscription channel (triggers new InstallPlan), only if channel is different
-oc patch subscription <name> -n <namespace> --type=merge -p '{"spec":{"channel":"<target-channel>"}}'
+Use the candidate's `channel` and `bundle` fields to construct the upgrade commands:
 
-# If InstallPlan approval is Manual, approve the InstallPlan
-oc wait subscription <name> -n <namespace> --for=jsonpath='{.status.installplan.name}'
-oc patch installplan <installplan-name> -n <namespace> --type=merge -p '{"spec":{"approved":true}}'
+```bash
+# Update subscription channel (triggers new InstallPlan), only if channel is different from current
+oc patch subscription <name> -n <namespace> --type=merge -p '{"spec":{"channel":"<candidate-channel>"}}'
+
+# If InstallPlan approval is Manual, wait for and approve the InstallPlan
+oc wait subscription <name> -n <namespace> --for=jsonpath='{.status.installplan.name}' --timeout=60s
+INSTALL_PLAN=$(oc get subscription <name> -n <namespace> -o jsonpath='{.status.installplan.name}')
+oc patch installplan $INSTALL_PLAN -n <namespace> --type=merge -p '{"spec":{"approved":true}}'
 
 # Wait for operator upgrade to complete
-oc wait installplan <installplan-name> -n <namespace> --for='jsonpath={.status.phase}=Complete' --timeout=300s
+oc wait installplan $INSTALL_PLAN -n <namespace> --for='jsonpath={.status.phase}=Complete' --timeout=300s
 ```
 
 **OLMv1 (ClusterExtension):**
 
+Use the candidate's `channel` field to update the ClusterExtension:
+
 ```bash
-# Update ClusterExtension channel or version
-oc patch clusterextension <name> --type=merge -p '{"spec":{"source":{"catalog":{"channels":["<target-channel>"]}}}}'
+# Update ClusterExtension channel
+oc patch clusterextension <name> --type=merge -p '{"spec":{"source":{"catalog":{"channels":["<candidate-channel>"]}}}}'
 
 # Wait for upgrade to complete
 oc wait clusterextension <name> --for=condition=Installed=True --timeout=300s
@@ -348,7 +395,7 @@ These permissions are scoped and temporary — granted only to the execution pod
 ```yaml
 remediationOptions:
   - name: "OpenShift 4.21.5 → 4.21.8 upgrade with operator alignment"
-    description: "Upgrade cluster-logging operator to target-compatible channel, then upgrade platform to 4.21.8"
+    description: "Upgrade cluster-logging operator to stable-6.0 channel (determined by operator-compatibility tool), then upgrade platform to 4.21.8"
     plan:
       risk: "Medium"
       reversible: "Irreversible"
@@ -366,11 +413,19 @@ remediationOptions:
 
         # OLM operator upgrades
         - type: mutation
-          command: "oc patch subscription cluster-logging -n openshift-logging --type=merge -p '{\"spec\":{\"channel\":\"stable-5.9\"}}'"
-          description: "Update cluster-logging operator to stable-5.9 channel (compatible with OCP 4.21.8)"
+          command: "oc patch subscription cluster-logging -n openshift-logging --type=merge -p '{\"spec\":{\"channel\":\"stable-6.0\"}}'"
+          description: "Update cluster-logging operator to stable-6.0 channel (compatible with OCP 4.21.8, selected from operator-compatibility candidates)"
 
         - type: wait
-          command: "oc wait subscription cluster-logging -n openshift-logging --for=jsonpath='{.status.state}'=AtLatestKnown --timeout=300s"
+          command: "oc wait subscription cluster-logging -n openshift-logging --for=jsonpath='{.status.installplan.name}' --timeout=60s"
+          description: "Wait for new InstallPlan to be created"
+
+        - type: mutation
+          command: "INSTALL_PLAN=$(oc get subscription cluster-logging -n openshift-logging -o jsonpath='{.status.installplan.name}') && oc patch installplan $INSTALL_PLAN -n openshift-logging --type=merge -p '{\"spec\":{\"approved\":true}}'"
+          description: "Approve the InstallPlan for cluster-logging upgrade (install_plan_approval is Manual)"
+
+        - type: wait
+          command: "INSTALL_PLAN=$(oc get subscription cluster-logging -n openshift-logging -o jsonpath='{.status.installplan.name}') && oc wait installplan $INSTALL_PLAN -n openshift-logging --for='jsonpath={.status.phase}=Complete' --timeout=300s"
           description: "Wait for cluster-logging operator upgrade to complete"
 
         # Platform upgrade
@@ -400,5 +455,6 @@ remediationOptions:
 
 This skill is typically used in conjunction with:
 
+- **`operator-compatibility`** — Used to determine which operators need upgrades and identify available upgrade channels/versions compatible with target OCP
 - **`product-lifecycle`** — Used to verify operator support status and OCP compatibility before planning upgrades
 - **`prometheus`** — Used for cluster metrics trend analysis during risk assessment

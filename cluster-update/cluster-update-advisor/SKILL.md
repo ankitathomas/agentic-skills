@@ -171,7 +171,7 @@ The `summary` section reports aggregate counts: `incompatible_with_target`, `man
 
 **Do NOT upgrade operators** that are already compatible with the target OCP version or where the upgrade is optional.
 
-**If a critical operator has no compatible channel in `available_channels`**, the upgrade should NOT proceed. Detail which operators are blocking and why in the Remediation Option.
+**If a critical operator returns an `error` from the compatibility tool**, the upgrade should NOT proceed. Detail which operators are blocking and why in the Remediation Option.
 
 ### Build the plan
 
@@ -187,6 +187,7 @@ Essential validation before any mutations:
 
 #### OLM Operator Upgrades (if needed)
 
+<<<<<<< HEAD
 **IMPORTANT:** Every command in the plan must be concrete and executable — resolve all variable values from the data gathered during the assessment phase. Never emit raw placeholders.
 
 For each critical operator requiring upgrade:
@@ -207,10 +208,42 @@ oc patch installplans.operators.coreos.com ${INSTALLPLAN_NAME} -n ${NAMESPACE} -
 
 # Wait for operator upgrade to complete
 oc wait installplans.operators.coreos.com ${INSTALLPLAN_NAME} -n ${NAMESPACE} --for='jsonpath={.status.phase}=Complete' --timeout=300s
+=======
+For each critical operator requiring upgrade, use the upgrade candidates returned by the `operator-compatibility` tool to determine the target channel and version.
+
+**Selecting upgrade candidates:**
+
+The tool returns filtered candidates representing the most relevant upgrade paths:
+- Smallest version larger than current (conservative upgrade)
+- Largest version available (latest upgrade)
+- Smallest version of next minor release
+- Largest patch of current minor release
+
+Choose the **smallest version larger than current** unless:
+- The operator's EOL status requires jumping to a newer minor version
+- The target OCP version requires a specific minimum operator version
+- Multiple channels are present — prefer `stable` over `fast` or version-specific channels
+
+**OLMv0 (Subscription/InstallPlan):**
+
+Use the candidate's `channel` and `bundle` fields to construct the upgrade commands:
+
+```bash
+# Update subscription channel (triggers new InstallPlan), only if channel is different from current
+oc patch subscription <name> -n <namespace> --type=merge -p '{"spec":{"channel":"<candidate-channel>"}}'
+
+# If InstallPlan approval is Manual, wait for and approve the InstallPlan
+oc wait subscription <name> -n <namespace> --for=jsonpath='{.status.installplan.name}' --timeout=60s
+INSTALL_PLAN=$(oc get subscription <name> -n <namespace> -o jsonpath='{.status.installplan.name}')
+oc patch installplan $INSTALL_PLAN -n <namespace> --type=merge -p '{"spec":{"approved":true}}'
+
+# Wait for operator upgrade to complete
+oc wait installplan $INSTALL_PLAN -n <namespace> --for='jsonpath={.status.phase}=Complete' --timeout=300s
 ```
 
 **OLMv1 (ClusterExtension):**
 
+<<<<<<< HEAD
 Resolve from the assessment data: `${EXTENSION_NAME}` from the ClusterExtension resource; `${TARGET_CHANNEL}` from the target version's required channel.
 
 ```bash
@@ -318,7 +351,7 @@ rollbackPlan:
 ```yaml
 remediationOptions:
   - name: "OpenShift 4.21.5 → 4.21.8 upgrade with operator alignment"
-    description: "Upgrade cluster-logging operator to target-compatible channel, then upgrade platform to 4.21.8"
+    description: "Upgrade cluster-logging operator to stable-6.0 channel (determined by operator-compatibility tool), then upgrade platform to 4.21.8"
     plan:
       risk: "Medium"
       reversible: "Irreversible"
@@ -362,5 +395,6 @@ remediationOptions:
 
 This skill is typically used in conjunction with:
 
+- **`operator-compatibility`** — Used to determine which operators need upgrades and identify available upgrade channels/versions compatible with target OCP
 - **`product-lifecycle`** — Used to verify operator support status and OCP compatibility before planning upgrades
 

@@ -2,10 +2,9 @@
 name: cluster-update-advisor
 description: Assess OpenShift cluster update (upgrade) readiness and risk, and produce a concrete remediation plan when the upgrade is feasible. Use when evaluating whether a cluster is safe to update, when an update is available, or when the user asks about update risks, prerequisites, blockers, or best practices.
 license: Apache-2.0
-compatibility: Requires oc/kubectl CLI
 ---
 
-# Cluster Update — Assessment & Planning
+# Cluster Update Advisor
 
 ## Purpose
 
@@ -28,7 +27,6 @@ diagnosis instead.
 The proposal request contains:
 - Current and target version metadata
 - Channel and update path classification — `Recommended` or `Conditional`
-- Conditional update risks — risks that apply to this cluster, with `Applies` condition status and admin acceptance state
 - **Cluster readiness JSON** — cluster health checks with context relevant to preparing for the update
 
 The readiness JSON is embedded in the request between ` ```json ` markers under
@@ -57,21 +55,20 @@ the "Cluster Readiness Data" heading. Parse it to begin analysis.
 Each check contains `_status` (`ok` or `error`) and check-specific data
 with a `summary` section for quick parsing.
 
----
 
-## Phase 1 — Risk Assessment
+## Risk Assessment Phase
 
-### 1. Parse readiness data
+### Parse readiness data
 
 Extract the JSON from the proposal request.
 Count checks with `_status` `ok` vs `error` for completeness.
 
-### 2. Verify data completeness
+### Verify data completeness
 
 Any check with `_status` `error` represents a gap in visibility.
 Note incomplete areas — they reduce confidence.
 
-### 3. Evaluate findings in detail
+### Evaluate findings in detail
 
 If the system prompt includes organization-specific policy (thresholds, scheduling preferences, risk tolerance), apply those constraints.
 Otherwise use sensible defaults.
@@ -82,7 +79,7 @@ Walk through each check's summary and detail data:
 - Identify compounding risks (e.g., paused MCP + cert expiry)
 - Estimate update duration (~10 min/node)
 
-### 4. Classify findings
+### Classify findings
 
 Assign each finding a severity per the classification table.
 
@@ -102,7 +99,7 @@ Assign each finding a severity per the classification table.
 For other checks, treat an issue as a blocker if would cause data loss, a performance regression, or a failed update.
 Treat the issue as a warning if would cause temporary disruption or slow updates.
 
-### 5. Investigate with other skills
+### Investigate with other skills
 
 If additional information or context is needed to classify a finding, these skills may be useful:
 
@@ -120,7 +117,7 @@ If additional information or context is needed to classify a finding, these skil
   field (exact match). Flag operators whose product version is End of life or whose
   `openshift_compatibility` does not include the target OCP version.
 
-### 6. Classify overall recommendation
+### Classify overall recommendation
 
 Aggregate finding classification, and make a decision on the overall assessment:
 
@@ -136,7 +133,7 @@ Aggregate finding classification, and make a decision on the overall assessment:
 | 0 | 1+ | `warn` |
 | 0 | 0 | `recommend` |
 
-### 7. Produce a structured risk report
+### Produce a structured risk report
 
 Produce the risk report with the decision and evidence.
 
@@ -147,51 +144,36 @@ the operator handles structured output compliance via the LLM API.
 
 ---
 
-## Phase 2 — Remediation Plan
+## Remediation Plan Phase
 
 Proceed only when the assessment indicates the upgrade is feasible (decision is `recommend` or `warn`, or `block` with actionable remediation).
 
-### 1. Identify required operator upgrades
+### Identify required operator upgrades
 
-Use the OLM operator data at `.checks.olm_operator_lifecycle`. The `operators` array contains one entry per installed OLM-managed operator:
+Use the OLM operator data at `.checks.olm_operator_lifecycle`. The `operators` array contains one entry per installed OLM-managed operator with fields like `name`, `package`, `namespace`, `channel`, `available_channels`, `installed_version`, and `state`.
 
-| Field | Description |
-|---|---|
-| `name` | Subscription / operator name |
-| `package` | Package name in the catalog |
-| `namespace` | Installed namespace |
-| `channel` | Current subscription channel |
-| `available_channels` | Channels available in the catalog for this operator |
-| `installed_version` | Currently installed version |
-| `installed_csv` | Current ClusterServiceVersion name |
-| `csv_phase` | CSV phase (`Succeeded`, `Failed`, etc.) |
-| `install_plan_approval` | `Automatic` or `Manual` |
-| `pending_upgrade` | Whether an upgrade is pending approval |
-| `source` | CatalogSource name |
-| `source_namespace` | CatalogSource namespace |
-| `state` | Subscription state (`AtLatestKnown`, etc.) |
+Key behaviors to note:
+- `install_plan_approval` determines whether an InstallPlan requires manual approval (`Manual`) or proceeds automatically (`Automatic`)
+- `installed_csv` and `install_plan_approval` indicate OLMv0 (Subscription-managed) operators
 
 The `summary` section reports aggregate counts: `incompatible_with_target`, `manual_approval`, `pending_upgrades`, `total_operators`.
 
-**Operator scope — only evaluate operators whose `package` matches this list:**
+**Supported operator scope:**
 
-`cluster-logging`, `openshift-gitops-operator`, `kubernetes-nmstate-operator`, `cert-manager-operator`, `local-storage-operator`, `oadp-operator`, `mcg-operator`, `ocs-operator`, `odf-csi-addons-operator`, `odf-operator`, `loki-operator`, `kubevirt-hyperconverged-operator`, `openshift-pipelines-operator-rh`, `metallb-operator`, `devworkspace-operator`, `web-terminal`, `mtv-operator`, `multicluster-engine`, `advanced-cluster-management`, `rhacs-operator`, `compliance-operator`, `nfd`, `quay-operator`, `cluster-observability-operator`, `ocs-client-operator`, `recipe`, `odf-prometheus-operator`, `rook-ceph-operator`, `cephcsi-operator`, `odf-dependencies`, `grafana-operator`, `odf-external-snapshotter-operator`
+`cluster-logging`, `openshift-gitops-operator`, `kubernetes-nmstate-operator`, `openshift-cert-manager-operator`, `local-storage-operator`, `redhat-oadp-operator`, `mcg-operator`, `ocs-operator`, `odf-csi-addons-operator`, `odf-operator`, `loki-operator`, `kubevirt-hyperconverged-operator`, `openshift-pipelines-operator-rh`, `metallb-operator`, `devworkspace-operator`, `web-terminal`, `mtv-operator`, `multicluster-engine`, `advanced-cluster-management`, `rhacs-operator`, `compliance-operator`, `nfd`, `quay-operator`, `cluster-observability-operator`, `ocs-client-operator`, `recipe`, `odf-prometheus-operator`, `rook-ceph-operator`, `cephcsi-operator`, `odf-dependencies`, `grafana-operator`, `odf-external-snapshotter-operator`
 
-Skip any operator not in this list — do not evaluate, upgrade, or report on it.
+**If the cluster has any installed operator whose `package` is not in this list, do not produce a remediation plan.** Report in the diagnosis that the cluster contains operators outside the supported scope and recommend performing the upgrade manually without AI assistance. List the unsupported operators found.
 
-**Critical operators** (require upgrade before the platform upgrade) are those in the list above where:
+**Critical operators** (require upgrade before the platform upgrade) are those in the supported list where:
 - `summary.incompatible_with_target > 0` — at least one operator is incompatible with the target OCP version
 - The operator's current channel does not support the target OCP version (use `available_channels` to identify a compatible channel)
 - The operator is in an EOL state flagged by the `product-lifecycle` skill
 
-**Do NOT upgrade operators** where:
-- The operator is not in the allowed list above
-- The operator is already compatible with the target OCP version
-- The operator is non-critical and the upgrade is optional
+**Do NOT upgrade operators** that are already compatible with the target OCP version or where the upgrade is optional.
 
 **If a critical operator has no compatible channel in `available_channels`**, the upgrade should NOT proceed. Detail which operators are blocking and why in the Remediation Option.
 
-### 2. Build the plan
+### Build the plan
 
 Produce a single `RemediationOption` with these sections:
 
@@ -205,45 +187,49 @@ Essential validation before any mutations:
 
 #### OLM Operator Upgrades (if needed)
 
+**IMPORTANT:** Every command in the plan must be concrete and executable — resolve all variable values from the data gathered during the assessment phase. Never emit raw placeholders.
+
 For each critical operator requiring upgrade:
 
 **OLMv0 (Subscription/InstallPlan):**
 
+Resolve from the assessment data: `${SUBSCRIPTION_NAME}` and `${NAMESPACE}` from the operator's subscription resource; `${TARGET_CHANNEL}` from the target version's required channel; `${INSTALLPLAN_NAME}` from the subscription's `.status.installplan.name` after the channel patch.
+
 ```bash
 # Update subscription channel (triggers new InstallPlan), only if channel is different
-oc patch subscription <name> -n <namespace> --type=merge -p '{"spec":{"channel":"<target-channel>"}}'
+# Requires: patch on subscriptions.operators.coreos.com
+oc patch subscriptions.operators.coreos.com ${SUBSCRIPTION_NAME} -n ${NAMESPACE} --type=merge -p '{"spec":{"channel":"${TARGET_CHANNEL}"}}'
 
 # If InstallPlan approval is Manual, approve the InstallPlan
-oc wait subscription <name> -n <namespace> --for=jsonpath='{.status.installplan.name}'
-oc patch installplan <installplan-name> -n <namespace> --type=merge -p '{"spec":{"approved":true}}'
+oc wait subscriptions.operators.coreos.com ${SUBSCRIPTION_NAME} -n ${NAMESPACE} --for=jsonpath='{.status.installplan.name}'
+# Requires: patch on installplans.operators.coreos.com
+oc patch installplans.operators.coreos.com ${INSTALLPLAN_NAME} -n ${NAMESPACE} --type=merge -p '{"spec":{"approved":true}}'
 
 # Wait for operator upgrade to complete
-oc wait installplan <installplan-name> -n <namespace> --for='jsonpath={.status.phase}=Complete' --timeout=300s
+oc wait installplans.operators.coreos.com ${INSTALLPLAN_NAME} -n ${NAMESPACE} --for='jsonpath={.status.phase}=Complete' --timeout=300s
 ```
 
 **OLMv1 (ClusterExtension):**
 
+Resolve from the assessment data: `${EXTENSION_NAME}` from the ClusterExtension resource; `${TARGET_CHANNEL}` from the target version's required channel.
+
 ```bash
 # Update ClusterExtension channel or version
-oc patch clusterextension <name> --type=merge -p '{"spec":{"source":{"catalog":{"channels":["<target-channel>"]}}}}'
+# Requires: patch on clusterextensions.olm.operatorframework.io
+oc patch clusterextensions.olm.operatorframework.io ${EXTENSION_NAME} --type=merge -p '{"spec":{"source":{"catalog":{"channels":["${TARGET_CHANNEL}"]}}}}'
 
 # Wait for upgrade to complete
-oc wait clusterextension <name> --for=condition=Installed=True --timeout=300s
+oc wait clusterextensions.olm.operatorframework.io ${EXTENSION_NAME} --for=condition=Installed=True --timeout=300s
 ```
 
 #### Platform Upgrade
 
-Construct the `desiredUpdate` patch with target version and image:
+Resolve from the assessment data: `${TARGET_VERSION}` from the chosen update target in the cluster's available updates.
+
+Request a platform update with `oc adm upgrade --to="${TARGET_VERSION}"`, which requires the ability to `patch` the `version` instance of the `clusterversions.config.openshift.io` resource.
 
 ```bash
-oc patch clusterversion version --type=merge -p '{
-  "spec": {
-    "desiredUpdate": {
-      "version": "<target-version>",
-      "image": "<target-image>",
-    }
-  }
-}'
+oc adm upgrade --to=${TARGET_VERSION}
 ```
 
 #### Post-checks
@@ -252,13 +238,13 @@ Verify the upgrade has started:
 
 ```bash
 # Check that ClusterVersion status reflects the new desiredUpdate
-oc get clusterversion version -o jsonpath='{.status.desired.version}'
+oc get -o jsonpath='{.status.desired.version}' clusterversions.config.openshift.io version
 
 # Verify upgrade is progressing (initial check only)
-oc get clusterversion version -o jsonpath='{.status.conditions[?(@.type=="Progressing")].status}'
+oc get -o jsonpath='{.status.conditions[?(@.type=="Progressing")].status}' clusterversions.config.openshift.io version
 ```
 
-### 3. Structure as RemediationOption
+### Structure as RemediationOption
 
 The plan must conform to the `RemediationOption` schema expected by the lightspeed-agentic-operator.
 
@@ -270,45 +256,29 @@ Each `ProposedAction` has:
 | `command` | The exact `oc` or `kubectl` command to execute |
 | `description` | Human-readable explanation of what this action does |
 
-Mark the platform upgrade action with:
+Mark the action with:
 
 ```yaml
 risk: "Medium" or "High"  # based on conditional risks and findings
 reversible: "Irreversible"
 rollbackPlan:
-  description: "Platform upgrade cannot be rolled back once started. OLM operator upgrades may be irreversible without reinstallation of operators at previous versions."
+  description: "Platform upgrade cannot be rolled back once started."
 ```
 
-**Derive RBAC for every planned action.** For each `oc` command in the plan, map it to the Kubernetes PolicyRule it requires (resource, apiGroup, verbs, resourceNames where applicable). Include the full list of required RBAC permissions in the remediation option output. Use the RBAC Declaration table below as reference.
-
----
-
-## RBAC Declaration
-
-The skill declares the following RBAC permissions needed for execution:
-
-| Resource | API Group | Verbs | Purpose |
-|---|---|---|---|
-| `clusterversions` | `config.openshift.io` | `get`, `patch` | Query current version, trigger platform upgrade |
-| `clusterextensions` | `olm.operatorframework.io` | `get`, `list`, `patch` | OLMv1 operator upgrades |
-| `subscriptions` | `operators.coreos.com` | `get`, `list`, `patch` | OLMv0 operator upgrades |
-| `installplans` | `operators.coreos.com` | `get`, `list`, `patch` | OLMv0 install plan approval |
-| `clusteroperators` | `config.openshift.io` | `get`, `list` | Pre-checks and post-checks |
-
-These permissions are scoped and temporary — granted only to the execution pod for the duration of the AgenticRun.
+**Derive RBAC for every planned action.** For each `oc` command in the plan, use the fully qualified resource name to identify the Kubernetes PolicyRule it requires (resource, apiGroup, verbs, resourceNames where applicable). Include the full list of required RBAC permissions in the remediation option output.
 
 ## Action Type Classification
 
 | Action | Type | Example |
 |---|---|---|
-| Check cluster conditions | `pre-check` | `oc get clusterversion -o jsonpath=...` |
-| Check operator health | `pre-check` | `oc get clusteroperators -o json` |
-| Update Subscription channel | `mutation` | `oc patch subscription ... --type=merge -p '{...}'` |
-| Approve InstallPlan | `mutation` | `oc patch installplan ... --type=merge -p '{...}'` |
-| Update ClusterExtension | `mutation` | `oc patch clusterextension ... --type=merge -p '{...}'` |
-| Wait for operator install | `wait` | `oc wait clusterextension ... --for=condition=Installed` |
-| Trigger platform upgrade | `mutation` | `oc patch clusterversion ... --type=merge -p '{...}'` |
-| Verify upgrade started | `post-check` | `oc get clusterversion -o jsonpath=...` |
+| Check cluster conditions | `pre-check` | `oc get clusterversions.config.openshift.io version -o jsonpath=...` |
+| Check operator health | `pre-check` | `oc get clusteroperators.config.openshift.io -o json` |
+| Update Subscription channel | `mutation` | `oc patch subscriptions.operators.coreos.com ... --type=merge -p '{...}'` |
+| Approve InstallPlan | `mutation` | `oc patch installplans.operators.coreos.com ... --type=merge -p '{...}'` |
+| Update ClusterExtension | `mutation` | `oc patch clusterextensions.olm.operatorframework.io ... --type=merge -p '{...}'` |
+| Wait for operator install | `wait` | `oc wait clusterextensions.olm.operatorframework.io ... --for=condition=Installed` |
+| Trigger platform upgrade | `mutation` | `oc adm upgrade --to=...` |
+| Verify upgrade started | `post-check` | `oc get clusterversions.config.openshift.io version -o jsonpath=...` |
 
 ## Failure Modes — What NOT to Do
 
@@ -353,46 +323,38 @@ remediationOptions:
       risk: "Medium"
       reversible: "Irreversible"
       rollbackPlan:
-        description: "Platform upgrade cannot be rolled back once the ClusterVersion desiredUpdate is set. OLM operator upgrades can be reverted by switching channels back to previous versions and waiting for operator reconciliation."
+        description: "Platform upgrade cannot be rolled back once started."
       actions:
         # Pre-checks
         - type: pre-check
-          command: "oc get clusterversion version -o jsonpath='{.status.conditions[?(@.type==\"Progressing\")].status}'"
+          command: "oc get -o jsonpath='{.status.conditions[?(@.type==\"Progressing\")].status}' clusterversions.config.openshift.io version"
           description: "Verify cluster is not currently progressing (expected: False)"
 
         - type: pre-check
-          command: "oc get clusteroperators -o json | jq -r '.items[] | select(.status.conditions[] | select(.type==\"Degraded\" and .status==\"True\")) | .metadata.name'"
+          command: "oc get clusteroperators.config.openshift.io -o json | jq -r '.items[] | select(.status.conditions[] | select(.type==\"Degraded\" and .status==\"True\")) | .metadata.name'"
           description: "Check for degraded cluster operators (expected: no output)"
 
         # OLM operator upgrades
         - type: mutation
-          command: "oc patch subscription cluster-logging -n openshift-logging --type=merge -p '{\"spec\":{\"channel\":\"stable-5.9\"}}'"
+          command: "oc patch subscriptions.operators.coreos.com cluster-logging -n openshift-logging --type=merge -p '{\"spec\":{\"channel\":\"stable-5.9\"}}'"
           description: "Update cluster-logging operator to stable-5.9 channel (compatible with OCP 4.21.8)"
 
         - type: wait
-          command: "oc wait subscription cluster-logging -n openshift-logging --for=jsonpath='{.status.state}'=AtLatestKnown --timeout=300s"
+          command: "oc wait subscriptions.operators.coreos.com cluster-logging -n openshift-logging --for=jsonpath='{.status.state}'=AtLatestKnown --timeout=300s"
           description: "Wait for cluster-logging operator upgrade to complete"
 
         # Platform upgrade
         - type: mutation
-          command: |
-            oc patch clusterversion version --type=merge -p '{
-              "spec": {
-                "desiredUpdate": {
-                  "version": "4.21.8",
-                  "image": "quay.io/openshift-release-dev/ocp-release@sha256:abc123..."
-                }
-              }
-            }'
-          description: "Trigger platform upgrade to 4.21.8"
+          command: "oc adm upgrade --to=4.21.8"
+          description: "Trigger platform upgrade to 4.21.8 (patches clusterversions.config.openshift.io/version)"
 
         # Post-checks
         - type: post-check
-          command: "oc get clusterversion version -o jsonpath='{.status.desired.version}'"
+          command: "oc get -o jsonpath='{.status.desired.version}' clusterversions.config.openshift.io version"
           description: "Verify desiredUpdate has been set (expected: 4.21.8)"
 
         - type: post-check
-          command: "oc get clusterversion version -o jsonpath='{.status.conditions[?(@.type==\"Progressing\")].status}'"
+          command: "oc get -o jsonpath='{.status.conditions[?(@.type==\"Progressing\")].status}' clusterversions.config.openshift.io version"
           description: "Verify upgrade has started progressing (expected: True)"
 ```
 
@@ -401,4 +363,4 @@ remediationOptions:
 This skill is typically used in conjunction with:
 
 - **`product-lifecycle`** — Used to verify operator support status and OCP compatibility before planning upgrades
-- **`prometheus`** — Used for cluster metrics trend analysis during risk assessment
+

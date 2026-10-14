@@ -48,10 +48,11 @@ require_json "$ALL_EVENTS" "events"
 
 ROLLOUT_EVENTS=$(echo "$ALL_EVENTS" | jq --arg cutoff "$CUTOFF" '[
     .items[]
-    | select(.lastTimestamp >= $cutoff or .lastTimestamp == null)
+    | (.series.lastObservedTime // .lastTimestamp // .eventTime) as $time
+    | select($time != null and $time >= $cutoff)
     | select(.reason | test("ScalingReplicaSet|DeploymentRollback|Scheduled|Pulled|Created|Started|Killing"; "i"))
     | {
-        time: .lastTimestamp,
+        time: $time,
         reason: .reason,
         object: "\(.involvedObject.kind)/\(.involvedObject.name)",
         namespace: .involvedObject.namespace,
@@ -61,10 +62,11 @@ ROLLOUT_EVENTS=$(echo "$ALL_EVENTS" | jq --arg cutoff "$CUTOFF" '[
 
 IMAGE_EVENTS=$(echo "$ALL_EVENTS" | jq --arg cutoff "$CUTOFF" '[
     .items[]
-    | select(.lastTimestamp >= $cutoff or .lastTimestamp == null)
+    | (.series.lastObservedTime // .lastTimestamp // .eventTime) as $time
+    | select($time != null and $time >= $cutoff)
     | select(.reason == "Pulled" or .reason == "Pulling")
     | {
-        time: .lastTimestamp,
+        time: $time,
         object: "\(.involvedObject.kind)/\(.involvedObject.name)",
         namespace: .involvedObject.namespace,
         message: .message

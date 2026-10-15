@@ -110,14 +110,14 @@
       command:
         type: string
         enum:
-          - "eval $(bash tools/prometheus-setup.sh)"
-          - "bash tools/get-firing-alerts.sh"
-          - "bash tools/diagnose-pod.sh"
-          - "bash tools/get-events.sh"
+          - "eval $(bash scripts/prometheus-setup.sh)"
+          - "bash scripts/get-firing-alerts.sh"
+          - "bash scripts/diagnose-pod.sh"
+          - "bash scripts/get-events.sh"
         description: "The first command in the investigation protocol. Use the 'investigate-alert' skill to find this."
     required: [command]
   expected:
-    command: "eval $(bash tools/prometheus-setup.sh)"
+    command: "eval $(bash scripts/prometheus-setup.sh)"
 
 - name: step3_mandatory_logs
   query: "You are investigating alert KubeDeploymentReplicasMismatch. You have already run diagnose-workload.sh for the affected deployment. According to the investigation protocol Step 3, what must you also run for every workload to collect container logs, even if the workload appears healthy?"

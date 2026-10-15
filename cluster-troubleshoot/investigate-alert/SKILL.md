@@ -21,6 +21,7 @@ description: Investigate one or more firing OpenShift alerts to determine root c
 - List actual resources before inspecting them; never guess pod names, use label selectors or owner references.
 - Sample up to 3 representative pods per workload, not all.
 - All `scripts/` scripts output JSON except `prometheus-setup.sh` (shell export commands for `eval`). Use `jq` for further filtering when needed.
+- Check script output as well as exit status: returned alert and resource identities must match the request. Report unavailable evidence explicitly; an empty result is not proof that the alert has no root cause.
 - When running raw `oc` commands, use `-o json | jq` for structured data extraction.
 - Do not repeat the same command with the same arguments.
 - Do not ask the user to run a command; gather the information yourself.
@@ -78,12 +79,14 @@ eval "$(bash scripts/prometheus-setup.sh)" && bash scripts/prometheus-query-rang
 
 ### Step 3 — Collect workload state and logs
 
-Using the namespaces and resources identified from the alert labels, list all deployments, statefulsets, and daemonsets in the affected namespaces. Then for **every** workload, collect its status and logs:
+Using the namespaces and resources identified from the alert labels, list all deployments, statefulsets, daemonsets, and pods in the affected namespaces. Then for **every** workload, collect its status and logs:
 ```bash
 bash scripts/diagnose-workload.sh <name> <namespace>
 bash scripts/diagnose-pod.sh <name-or-selector> <namespace> --logs
 ```
 This is mandatory. Do not skip workloads that appear healthy. A Running pod with no visible issues can still be the root cause if it is producing errors internally.
+
+Use selectors from the discovered workload or labels on listed pods, not assumed label conventions. If a selection unexpectedly returns no pods, verify labels and namespace before retrying with corrected arguments. Record unavailable logs explicitly.
 
 ### Step 4 — Collect events and recent changes
 

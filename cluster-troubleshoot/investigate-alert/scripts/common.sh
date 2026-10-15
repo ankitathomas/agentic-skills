@@ -4,6 +4,10 @@
 
 set -euo pipefail
 
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
+
 # --- JSON output helpers ---
 
 error_json() {

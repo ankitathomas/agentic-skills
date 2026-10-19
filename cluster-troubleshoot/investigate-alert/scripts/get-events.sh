@@ -35,9 +35,10 @@ echo "$EVENTS_JSON" | jq --arg cutoff "$CUTOFF" --arg ns "${NAMESPACE:-current}"
   time_window_minutes: $minutes,
   events: [
     .items[]
-    | select(.lastTimestamp >= $cutoff or .lastTimestamp == null)
+    | (.series.lastObservedTime // .lastTimestamp // .eventTime) as $time
+    | select($time != null and $time >= $cutoff)
     | {
-        time: .lastTimestamp,
+        time: $time,
         type: .type,
         reason: .reason,
         object: "\(.involvedObject.kind)/\(.involvedObject.name)",
@@ -45,9 +46,10 @@ echo "$EVENTS_JSON" | jq --arg cutoff "$CUTOFF" --arg ns "${NAMESPACE:-current}"
         message: .message,
         count: .count
       }
-  ] | .[-100:],
+  ] | sort_by(.time) | .[-100:],
   total_in_window: ([
     .items[]
-    | select(.lastTimestamp >= $cutoff or .lastTimestamp == null)
+    | (.series.lastObservedTime // .lastTimestamp // .eventTime) as $time
+    | select($time != null and $time >= $cutoff)
   ] | length)
 }'

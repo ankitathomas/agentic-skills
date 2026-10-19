@@ -16,7 +16,7 @@ if [[ ! "$ALERT_NAME" =~ ^[a-zA-Z_:][a-zA-Z0-9_:]*$ ]]; then
   error_json "INVALID_ARG" "Invalid alert name: '$ALERT_NAME'" \
     "Alert names must match ^[a-zA-Z_:][a-zA-Z0-9_:]*$"
 fi
-PROMQL="ALERTS{alertname=\"${ALERT_NAME}\"}"
+PROMQL="ALERTS{alertname=\"${ALERT_NAME}\",alertstate=\"firing\"} == 1"
 QUERY=$(urlencode "$PROMQL")
 
 RESPONSE=$(prometheus_get "/api/v1/query?query=${QUERY}")

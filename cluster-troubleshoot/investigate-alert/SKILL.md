@@ -21,6 +21,7 @@ description: Investigate one or more firing OpenShift alerts to determine root c
 - List actual resources before inspecting them; never guess pod names, use label selectors or owner references.
 - Sample up to 3 representative pods per workload, not all.
 - All `scripts/` scripts output JSON except `prometheus-setup.sh` (shell export commands for `eval`). Use `jq` for further filtering when needed.
+- Check script output as well as exit status: returned alert and resource identities must match the request. Report unavailable evidence explicitly; an empty result is not proof that the alert has no root cause.
 - When running raw `oc` commands, use `-o json | jq` for structured data extraction.
 - Do not repeat the same command with the same arguments.
 - Do not ask the user to run a command; gather the information yourself.
@@ -28,11 +29,11 @@ description: Investigate one or more firing OpenShift alerts to determine root c
 
 # Tools
 
-The `scripts/` directory contains diagnostic scripts. All output JSON to stdout and return structured error objects on failure, except `prometheus-setup.sh` which prints shell export commands for `eval`. Run `eval $(bash scripts/prometheus-setup.sh)` once per session before using Prometheus tools.
+The `scripts/` directory contains diagnostic scripts. All output JSON to stdout and return structured error objects on failure, except `prometheus-setup.sh` which prints shell export commands for `eval`. Prometheus tools initialize TOKEN and THANOS_URL on demand; no explicit setup is required.
 
 ## Prometheus
 
-- `bash scripts/prometheus-setup.sh` — Set TOKEN and THANOS_URL
+- `bash scripts/prometheus-setup.sh` — Print optional TOKEN and THANOS_URL export commands
 - `bash scripts/query-alert.sh <alert_name>` — Firing instances of a named alert with full label sets
 - `bash scripts/fetch-alert-rule.sh <alert_name>` — Alert PromQL expression, thresholds, annotations
 - `bash scripts/prometheus-query.sh '<promql>'` — Instant PromQL query
@@ -59,12 +60,7 @@ The protocol has two phases: **collect evidence first**, then **analyze**. Do no
 
 Determine the scope of the alerts: is it one pod, one node, one namespace, or cluster-wide? This determines which layer to start from and which scripts to prioritize.
 
-### Step 2 — Set up and query the alerts
-
-Configure Prometheus access:
-```bash
-eval $(bash scripts/prometheus-setup.sh)
-```
+### Step 2 — Query the alerts
 
 For each alert provided:
 ```bash
@@ -83,12 +79,14 @@ bash scripts/prometheus-query-range.sh '<expr>'
 
 ### Step 3 — Collect workload state and logs
 
-Using the namespaces and resources identified from the alert labels, list all deployments, statefulsets, and daemonsets in the affected namespaces. Then for **every** workload, collect its status and logs:
+Using the namespaces and resources identified from the alert labels, list all deployments, statefulsets, daemonsets, and pods in the affected namespaces. Then for **every** workload, collect its status and logs:
 ```bash
 bash scripts/diagnose-workload.sh <name> <namespace>
 bash scripts/diagnose-pod.sh <name-or-selector> <namespace> --logs
 ```
 This is mandatory. Do not skip workloads that appear healthy. A Running pod with no visible issues can still be the root cause if it is producing errors internally.
+
+Use selectors from the discovered workload or labels on listed pods, not assumed label conventions. If a selection unexpectedly returns no pods, verify labels and namespace before retrying with corrected arguments. Record unavailable logs explicitly.
 
 ### Step 4 — Collect events and recent changes
 

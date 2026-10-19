@@ -43,7 +43,9 @@ else
 fi
 
 if [[ -z "$POD_NAMES" ]]; then
-  error_json "NOT_FOUND" "No pods found matching '$TARGET'"
+  jq -n --arg selector "$TARGET" \
+    '{pods: [], selector: $selector, message: "No pods match the selector; pod logs are unavailable."}'
+  exit 0
 fi
 
 RESULTS="[]"

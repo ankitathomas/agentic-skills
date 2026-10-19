@@ -90,7 +90,7 @@
     script: "check-recent-changes.sh"
 
 - name: prometheus_setup
-  query: "Before querying any alerts with the investigate-alert skill's Prometheus tools, what script must be run first to configure access credentials?"
+  query: "Which script do the investigate-alert skill's Prometheus tools call automatically to configure access credentials when TOKEN or THANOS_URL is missing?"
   schema:
     type: object
     properties:
@@ -103,21 +103,21 @@
     script: "prometheus-setup.sh"
 
 - name: first_investigation_step
-  query: "According to the investigate-alert investigation protocol, what is the first command you must run in Step 2 to set up Prometheus access?"
+  query: "According to the investigate-alert investigation protocol, what is the first command you must run in Step 2 to query firing instances of KubePodCrashLooping?"
   schema:
     type: object
     properties:
       command:
         type: string
         enum:
-          - "eval $(bash tools/prometheus-setup.sh)"
-          - "bash tools/get-firing-alerts.sh"
-          - "bash tools/diagnose-pod.sh"
-          - "bash tools/get-events.sh"
+          - "bash scripts/query-alert.sh KubePodCrashLooping"
+          - "bash scripts/get-firing-alerts.sh"
+          - "bash scripts/diagnose-pod.sh"
+          - "bash scripts/get-events.sh"
         description: "The first command in the investigation protocol. Use the 'investigate-alert' skill to find this."
     required: [command]
   expected:
-    command: "eval $(bash tools/prometheus-setup.sh)"
+    command: "bash scripts/query-alert.sh KubePodCrashLooping"
 
 - name: step3_mandatory_logs
   query: "You are investigating alert KubeDeploymentReplicasMismatch. You have already run diagnose-workload.sh for the affected deployment. According to the investigation protocol Step 3, what must you also run for every workload to collect container logs, even if the workload appears healthy?"

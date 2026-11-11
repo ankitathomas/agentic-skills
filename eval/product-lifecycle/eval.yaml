@@ -1,0 +1,214 @@
+name: product-lifecycle
+description: >
+  Evaluates the product-lifecycle skill: query PLC support phases, EOL dates,
+  and OCP compatibility for products and OLM operators via plc_lookup.py
+  against frozen mock data, and report structured answers.
+
+execution:
+  mode: case
+  skill: product-lifecycle
+  arguments: |
+    {{ input.query }}
+
+    Respond with ONLY a JSON object (no prose, no markdown fences) that conforms exactly to this JSON schema:
+    {{ input.response_schema }}
+  timeout: 900
+
+runner:
+  type: claude-code
+  plugin_dirs: ["."]
+  system_prompt: |
+    You have access to the product-lifecycle skill. Use it to query Red Hat
+    Product Life Cycle data for product support phases, EOL dates, and OCP
+    version compatibility.
+
+    When given operator package names or Red Hat product names, look up their
+    lifecycle status using the product-lifecycle skill's plc_lookup.py script
+    (locate it inside the skill directory in the workspace, e.g. with Glob
+    for **/plc_lookup.py, and run it with python3).
+
+    OLM operators must be split by management type:
+    - OLMv0 (Subscription-managed): use --olmv0
+    - OLMv1 (ClusterExtension-managed): use --olmv1
+
+    Use --compatibleonly when checking upgrade paths.
+
+    Mock data files are available in the working directory. Always use them
+    to avoid live API calls:
+    - --productsfile product-lifecycle/mock_products.json
+    - --packagemanifestsfile product-lifecycle/mock_packagemanifests.json
+
+    Do not guess lifecycle data. Do not call the live PLC API. Always ground
+    answers in the plc_lookup.py script output run against the mock data
+    files, or in the mock data files themselves.
+
+    Respond with ONLY a JSON object conforming to the schema given in the
+    request — no prose, no markdown fences.
+
+models:
+  skill: claude-opus-4-6
+  judge: claude-opus-4-6
+
+permissions:
+  allow:
+    - "Skill"
+    - "Bash"
+    - "Read"
+    - "Glob"
+    - "Grep"
+
+inputs:
+  tools:
+    - match: |
+        Bash commands that reach the Red Hat Product Life Cycle API at
+        access.redhat.com over the network, or run `oc` commands against a
+        live cluster.
+      prompt: |
+        Block live network and cluster access. Frozen mock data files are
+        provisioned in the workspace (product-lifecycle/mock_products.json,
+        product-lifecycle/mock_packagemanifests.json) and the case
+        expectations are derived from them; live API data would make results
+        nondeterministic. Allow plc_lookup.py invocations that use
+        --productsfile/--packagemanifestsfile with those files; deny any
+        command that would hit the network or a cluster.
+
+dataset:
+  path: cases
+  schema: |
+    Each case directory contains:
+    - input.yaml: YAML file with 'query' (natural-language task naming
+      operators with versions and OLM management type — OLMv0 Subscription
+      vs OLMv1 ClusterExtension — a target OCP version, and what to report)
+      and 'response_schema' (JSON-serialized jsonschema object the response
+      must conform to; property descriptions carry per-case hints such as
+      the normalized status enum).
+    - annotations.yaml: 'expected' (exact expected values derived from the
+      frozen mock data: operators_checked/found/compatible counts,
+      ocp_compatible, any_incompatible, all_compatible, has_upgrade_path,
+      upgrade_catalog, installed_status enum, upgrade_versions_available,
+      compatible_versions list, product_found, status).
+    Mock data is shared across all cases via dataset.workspace.files:
+    product-lifecycle/mock_products.json (PLC API snapshot captured
+    2026-11-05, trimmed to 9 products) and
+    product-lifecycle/mock_packagemanifests.json (hand-crafted `oc get
+    packagemanifests -A -o json` mock). The PLC API and any live cluster are
+    [EXTERNAL: System] — never contacted; mock files replace both.
+  workspace:
+    files:
+      - dest: product-lifecycle/mock_products.json
+        source: evals/skills/product-lifecycle/testdata/mock_products.json
+      - dest: product-lifecycle/mock_packagemanifests.json
+        source: evals/skills/product-lifecycle/testdata/mock_packagemanifests.json
+
+outputs:
+  - path: output
+    schema: |
+      Conventional empty directory — the skill's script prints JSON to
+      stdout and the agent writes no files (stdout_only). The scored
+      artifact is the agent's conversational JSON answer: aggregate counts
+      (operators_checked, operators_found, operators_compatible),
+      compatibility booleans (ocp_compatible, any_incompatible,
+      all_compatible, has_upgrade_path, product_found), normalized lifecycle
+      status enum (supported|maintenance|extended|end-of-maintenance|eol|
+      unknown), and upgrade-path specifics (upgrade_catalog,
+      upgrade_versions_available, compatible_versions). Judges read it via
+      {{ conversation }} / outputs["conversation"].
+
+  # Tool call side effects: Bash invocations of plc_lookup.py. tool_grounded
+  # verifies from these that data queries used the mock-file flags.
+  - tool: "Bash"
+    schema: |
+      Bash commands executed by the agent. The fields that matter: the
+      command string — plc_lookup.py invocations with a data subcommand
+      (products / olm-check) should carry --productsfile (and
+      --packagemanifestsfile for OLMv0 source-catalog lookups) pointing at
+      the workspace mock files, and must never reach access.redhat.com or a
+      live cluster.
+
+traces:
+  stdout: true
+  stderr: true
+  events: true
+  metrics: true
+
+judges:
+  - name: answer_json_parsable
+    description: |
+      The response contains a JSON object judges can parse. Prerequisite for
+      all field-comparison judges.
+    check: |
+      import json, re
+      text = outputs.get("conversation", "")
+      if not text.strip():
+          return (False, "No response text")
+      m = re.search(r"\{.*\}", text, re.S)
+      if not m:
+          return (False, "No JSON object found in response")
+      try:
+          json.loads(m.group(0))
+      except json.JSONDecodeError as e:
+          return (False, f"JSON parse error: {e}")
+      return (True, "Response contains a parsable JSON object")
+
+  - name: expected_fields_match
+    description: |
+      Every annotated expected field (counts, booleans, status enum, catalog
+      name, version lists) matches the response exactly. Lists compare
+      sorted, mirroring the upstream eval's static matching.
+    check: |
+      import json, re
+      expected = outputs.get("annotations", {}).get("expected", {})
+      text = outputs.get("conversation", "")
+      m = re.search(r"\{.*\}", text, re.S)
+      answer = {}
+      if m:
+          try:
+              answer = json.loads(m.group(0))
+          except json.JSONDecodeError:
+              answer = {}
+      if not expected:
+          return (True, "no expected fields annotated")
+      mismatches = []
+      for field, want in expected.items():
+          got = answer.get(field)
+          if isinstance(want, list):
+              if sorted(got or []) != sorted(want):
+                  mismatches.append(f"{field}: expected {want}, got {got}")
+          elif got != want:
+              mismatches.append(f"{field}: expected {want!r}, got {got!r}")
+      if mismatches:
+          return (False, "; ".join(mismatches))
+      return (True, f"all {len(expected)} expected fields match")
+
+  - name: tool_grounded
+    description: |
+      The answer's lifecycle data comes from actually running plc_lookup.py
+      against the mock files, not from the model's memory. Deterministic:
+      the full Bash command strings are available in outputs["tool_calls"],
+      so script invocation and mock-file usage are directly checkable. (An
+      earlier LLM-judge version of this criterion misjudged one case because
+      {{ tool_trace }} truncates long commands; live API access is already
+      blocked by inputs.tools interception, and answer-vs-data correctness
+      is gated by expected_fields_match.)
+    check: |
+      calls = outputs.get("tool_calls", [])
+      bash_cmds = [c.get("input", {}).get("command", "") for c in calls
+                   if c.get("name") == "Bash"]
+      data_calls = [c for c in bash_cmds
+                    if "plc_lookup.py" in c and "--help" not in c]
+      if not data_calls:
+          return (False, "plc_lookup.py was never invoked with a data query")
+      mock_calls = [c for c in data_calls if "productsfile" in c]
+      if not mock_calls:
+          return (False, f"{len(data_calls)} plc_lookup.py data call(s) but "
+                  "none used --productsfile mock data")
+      return (True, f"{len(mock_calls)}/{len(data_calls)} data calls used "
+              "the mock products file")
+
+thresholds:
+  answer_json_parsable:
+    min_pass_rate: 1.0
+  expected_fields_match:
+    min_pass_rate: 1.0
+  tool_grounded:
+    min_pass_rate: 1.0

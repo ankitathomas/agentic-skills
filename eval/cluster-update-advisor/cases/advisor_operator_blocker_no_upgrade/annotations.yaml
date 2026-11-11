@@ -1,0 +1,3 @@
+expected:
+  decision: block
+  has_remediation_plan: false

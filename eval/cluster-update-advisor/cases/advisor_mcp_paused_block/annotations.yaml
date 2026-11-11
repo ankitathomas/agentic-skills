@@ -1,0 +1,4 @@
+expected:
+  blockers_found: 1
+  decision: block
+  mcp_paused: true

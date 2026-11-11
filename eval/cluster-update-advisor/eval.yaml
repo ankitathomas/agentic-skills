@@ -1,0 +1,320 @@
+name: cluster-update-advisor
+description: >
+  Evaluates the cluster-update-advisor skill: classify embedded CVO readiness
+  data into blockers/warnings, apply the decision matrix, and produce correct
+  remediation plans with ordered oc commands.
+
+execution:
+  mode: case
+  skill: cluster-update-advisor
+  arguments: |
+    {{ input.query }}
+
+    Respond with ONLY a JSON object (no prose, no markdown fences) that conforms exactly to this JSON schema:
+    {{ input.response_schema }}
+  timeout: 900
+
+runner:
+  type: claude-code
+  plugin_dirs: ["."]
+  system_prompt: |
+    You have access to the cluster-update-advisor skill. Use it to evaluate
+    cluster upgrade readiness data and produce an upgrade decision.
+
+    The request contains a "Cluster Readiness Data" section with a JSON
+    block. Parse the JSON, evaluate each check's results, and apply the
+    cluster-update-advisor skill's decision framework to classify findings as
+    escalate, block, warn, or recommend.
+
+    When the request includes a "Product Lifecycle Results" section with
+    product-lifecycle olm-check output, use that data directly to assess
+    operator compatibility and upgrade paths — do not call the
+    product-lifecycle skill in that case.
+
+    When the request does NOT include lifecycle results, consult the
+    product-lifecycle skill yourself: locate plc_lookup.py (e.g. with Glob
+    for **/plc_lookup.py), run ONE olm-check call for the whole cluster
+    with the target OCP major.minor (4.21) and --compatibleonly, split by
+    OLM type (--olmv0 / --olmv1 JSON arrays). Mock data files are
+    provisioned in the working directory — always use them, never the live
+    API:
+    - --productsfile product-lifecycle/mock_products.json
+    - --packagemanifestsfile product-lifecycle/mock_packagemanifests.json
+
+    Operators in olm_operator_lifecycle fall into two types:
+    - OLMv0 (Subscription-managed): has installed_csv and install_plan_approval.
+      Upgrade via: oc patch subscriptions.operators.coreos.com
+    - OLMv1 (ClusterExtension-managed): no installed_csv.
+      Upgrade via: oc patch clusterextensions.olm.operatorframework.io
+
+    When an operator has ocp_compatible=false and available_versions or
+    source_catalogs, include the appropriate upgrade command for its type
+    before the platform update.
+
+    Do not guess or assume cluster state. Do not execute upgrade commands.
+
+models:
+  skill: claude-opus-4-6
+  judge: claude-opus-4-6
+
+permissions:
+  allow:
+    - "Skill"
+    - "Bash"
+    - "Read"
+    - "Glob"
+    - "Grep"
+
+inputs:
+  tools:
+    - match: |
+        Bash commands that invoke plc_lookup.py, call the Red Hat Product
+        Life Cycle API at access.redhat.com, or run `oc` commands against a
+        live cluster.
+      prompt: |
+        Block these calls. Every case embeds all product-lifecycle results and
+        cluster readiness data in the request itself; live API or cluster
+        access would make results nondeterministic. Fail the call so the agent
+        uses the embedded data.
+
+dataset:
+  path: cases
+  schema: |
+    Each case directory contains:
+    - input.yaml: YAML file with 'query' (the full CVO proposal request:
+      version metadata lines, a "## Cluster Readiness Data" section with a
+      JSON block of 9 readiness checks, and for remediation cases a
+      "## Product Lifecycle Results" section with embedded plc_lookup.py
+      olm-check output) and 'response_schema' (JSON-serialized jsonschema
+      object the response must conform to; property descriptions carry the
+      per-case hints, e.g. target channel selection rules).
+    - annotations.yaml: 'expected' (exact expected values for response
+      fields: decision, blockers_found, detection booleans, unhealthy_member,
+      checks_errored, target_channel, has_remediation_plan, ...), and for
+      advisor_mixed_operators_plan additionally 'expected_command_groups'
+      (each group is a list of substrings that one remediationPlan command
+      must contain) and 'operator_commands_before_platform' (operator upgrade
+      commands must precede the 'oc adm upgrade' command).
+      advisor_invokes_product_lifecycle additionally sets
+      'requires_plc_invocation: true' (the query embeds no lifecycle data —
+      the agent must run plc_lookup.py itself against the mock files).
+  workspace:
+    files:
+      - dest: product-lifecycle/mock_products.json
+        source: evals/skills/product-lifecycle/testdata/mock_products.json
+      - dest: product-lifecycle/mock_packagemanifests.json
+        source: evals/skills/product-lifecycle/testdata/mock_packagemanifests.json
+
+outputs:
+  - path: output
+    schema: |
+      Conventional empty directory — the skill is a pure analysis skill and
+      writes no files (stdout_only). The scored artifact is the agent's
+      conversational JSON answer: decision (recommend|warn|block|escalate),
+      blockers_found/warnings_found, case-specific detection fields, and for
+      remediation cases a remediationPlan object with ordered actions (each
+      an executable oc command with type pre-check|mutation|wait|post-check)
+      and a reversibility verdict. Judges read it via {{ conversation }} /
+      outputs["conversation"].
+
+  # Tool call side effects: Bash invocations of plc_lookup.py, used by the
+  # tool_grounded judge for cases annotated requires_plc_invocation.
+  - tool: "Bash"
+    schema: |
+      Bash commands executed by the agent. The fields that matter: the
+      command string — for cases without embedded lifecycle data,
+      plc_lookup.py should be invoked once with an olm-check data query
+      carrying --productsfile (and --packagemanifestsfile for OLMv0
+      source-catalog lookups) pointing at the workspace mock files.
+
+traces:
+  stdout: true
+  stderr: true
+  events: true
+  metrics: true
+
+judges:
+  - name: answer_json_parsable
+    description: |
+      The response contains a JSON object judges can parse. Prerequisite for
+      all field-comparison judges.
+    check: |
+      import json, re
+      text = outputs.get("conversation", "")
+      if not text.strip():
+          return (False, "No response text")
+      m = re.search(r"\{.*\}", text, re.S)
+      if not m:
+          return (False, "No JSON object found in response")
+      try:
+          json.loads(m.group(0))
+      except json.JSONDecodeError as e:
+          return (False, f"JSON parse error: {e}")
+      return (True, "Response contains a parsable JSON object")
+
+  - name: expected_fields_match
+    description: |
+      Every annotated expected field (decision, counts, detection booleans,
+      target channel, ...) matches the response exactly. Lists compare
+      sorted, mirroring the upstream eval's static matching.
+    check: |
+      import json, re
+      expected = outputs.get("annotations", {}).get("expected", {})
+      text = outputs.get("conversation", "")
+      m = re.search(r"\{.*\}", text, re.S)
+      answer = {}
+      if m:
+          try:
+              answer = json.loads(m.group(0))
+          except json.JSONDecodeError:
+              answer = {}
+      if not expected:
+          return (True, "no expected fields annotated")
+      mismatches = []
+      for field, want in expected.items():
+          got = answer.get(field)
+          if isinstance(want, list):
+              if sorted(got or []) != sorted(want):
+                  mismatches.append(f"{field}: expected {want}, got {got}")
+          elif got != want:
+              mismatches.append(f"{field}: expected {want!r}, got {got!r}")
+      if mismatches:
+          return (False, "; ".join(mismatches))
+      return (True, f"all {len(expected)} expected fields match")
+
+  - name: remediation_commands
+    description: |
+      remediationPlan.actions contains the expected oc commands (matched by
+      substring groups, since oc arguments are not positional), orders
+      operator upgrades before the platform update, and omits forbidden
+      commands (e.g. patching a Subscription that should not be touched —
+      absence must be verified against the commands, not the agent's
+      self-reported booleans). Ports verify.py's verify_mixed_operators_plan
+      and verify_installplan_approval; only asserts on cases annotated with
+      expected_command_groups.
+    check: |
+      import json, re
+      meta = outputs.get("annotations", {})
+      groups = meta.get("expected_command_groups") or []
+      forbidden = meta.get("forbidden_command_groups") or []
+      if not groups and not forbidden:
+          return (True, "no remediation command expectations for this case")
+      text = outputs.get("conversation", "")
+      m = re.search(r"\{.*\}", text, re.S)
+      answer = {}
+      if m:
+          try:
+              answer = json.loads(m.group(0))
+          except json.JSONDecodeError:
+              answer = {}
+      actions = (answer.get("remediationPlan") or {}).get("actions") or []
+      cmds = [a.get("command", "") for a in actions if isinstance(a, dict)]
+      if not cmds:
+          return (False, "remediationPlan.actions is empty or missing")
+      def find(cmds, subs):
+          for i, c in enumerate(cmds):
+              if all(s in c for s in subs):
+                  return i
+          return None
+      missing = [g for g in groups if find(cmds, g) is None]
+      present_forbidden = [g for g in forbidden if find(cmds, g) is not None]
+      platform_group = next((g for g in groups if "oc adm upgrade" in g), ["oc adm upgrade"])
+      platform_idx = find(cmds, platform_group)
+      ordered = True
+      if meta.get("operator_commands_before_platform"):
+          for g in groups:
+              if "oc adm upgrade" in g:
+                  continue
+              idx = find(cmds, g)
+              if idx is None or (platform_idx is not None and idx > platform_idx):
+                  ordered = False
+      ok = (not missing) and ordered and (not present_forbidden)
+      return (ok, f"missing={missing}, forbidden_present={present_forbidden}, "
+              f"operators_before_platform={ordered}")
+
+  - name: findings_grounded
+    description: |
+      Every finding traces back to the embedded readiness/lifecycle data with
+      no fabricated references. Needs an LLM: hallucinated Jira keys, CVE
+      IDs, operator versions, or cluster state have no fixed signature a
+      code check could match. Skipped for cases annotated
+      requires_plc_invocation: those cases embed no lifecycle data — the
+      agent fetches it via plc_lookup.py, so claims grounded in the script's
+      output (catalog names, channels, versions) have no support in the
+      request by design; tool_grounded + expected_fields_match cover them.
+    if: "not annotations.get('requires_plc_invocation')"
+    feedback_type: bool
+    prompt: |
+      The skill was asked to assess OpenShift cluster update readiness from
+      the pre-collected data embedded in the request.
+
+      ## Request (readiness data and lifecycle results)
+      {{ inputs }}
+
+      ## Assessment under evaluation
+      {{ conversation }}
+
+      ## What you are checking
+      The response invents cluster state or references that the request does
+      not contain.
+
+      ## PASS
+      Every blocker, warning, finding, operator name, version, and command in
+      the response is directly supported by data present in the request; no
+      Jira keys, KB article IDs, CVE numbers, or cluster conditions appear
+      that are absent from the input.
+
+      ## FAIL
+      At least one claim has no support in the request — quote it in your
+      rationale.
+
+      PASS example: "blocker: flowschemas.v1beta3 removed in 4.21.16 with
+      1250 requests/day (from api_deprecations blocker_apis)" — every value
+      appears in the input.
+        — passes because each element traces to the readiness JSON.
+      FAIL example: "also blocked by known issue OCPBUGS-12345 and CVE-2026-0001"
+        — fails because neither reference appears anywhere in the input.
+
+  # NOTE: a report_completeness LLM judge (scored 1-5 for narrative analysis
+  # coverage) was removed after the first run: the response format instructed
+  # "ONLY a JSON object", which suppresses the narrative that rubric grades —
+  # no response could score above ~2 under it. Narrative completeness is not
+  # observable under the JSON-only format; expected_fields_match and
+  # findings_grounded cover the observable quality dimensions.
+
+  - name: tool_grounded
+    description: |
+      For cases annotated requires_plc_invocation (no embedded lifecycle
+      data), the agent actually ran plc_lookup.py with the mock files
+      instead of answering from memory. Deterministic from full Bash
+      command strings in outputs["tool_calls"]; no-ops (passes) for the
+      embedded-data cases.
+    check: |
+      meta = outputs.get("annotations", {})
+      if not meta.get("requires_plc_invocation"):
+          return (True, "not applicable: lifecycle data embedded in query")
+      calls = outputs.get("tool_calls", [])
+      bash_cmds = [c.get("input", {}).get("command", "") for c in calls
+                   if c.get("name") == "Bash"]
+      data_calls = [c for c in bash_cmds
+                    if "plc_lookup.py" in c and "--help" not in c]
+      if not data_calls:
+          return (False, "plc_lookup.py was never invoked with a data query")
+      mock_calls = [c for c in data_calls if "productsfile" in c]
+      if not mock_calls:
+          return (False, f"{len(data_calls)} plc_lookup.py data call(s) but "
+                  "none used --productsfile mock data")
+      return (True, f"{len(mock_calls)}/{len(data_calls)} data calls used "
+              "the mock products file")
+
+thresholds:
+  answer_json_parsable:
+    min_pass_rate: 1.0
+  expected_fields_match:
+    min_pass_rate: 1.0
+  remediation_commands:
+    min_pass_rate: 1.0
+  findings_grounded:
+    min_pass_rate: 1.0
+  tool_grounded:
+    min_pass_rate: 1.0

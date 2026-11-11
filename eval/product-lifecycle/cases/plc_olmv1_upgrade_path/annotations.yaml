@@ -1,0 +1,5 @@
+expected:
+  compatible_versions:
+  - '1.37'
+  installed_status: eol
+  ocp_compatible: false

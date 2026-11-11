@@ -1,0 +1,13 @@
+expected:
+  decision: warn
+  has_installplan_approval: true
+  has_subscription_patch: false
+  platform_update_included: true
+expected_command_groups:
+- - oc patch
+  - installplans.operators.coreos.com
+- - oc adm upgrade
+  - 4.21.16
+forbidden_command_groups:
+- - oc patch subscriptions
+operator_commands_before_platform: true

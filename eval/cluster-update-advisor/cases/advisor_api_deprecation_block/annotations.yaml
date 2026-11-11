@@ -1,0 +1,3 @@
+expected:
+  api_blocker_detected: true
+  decision: block

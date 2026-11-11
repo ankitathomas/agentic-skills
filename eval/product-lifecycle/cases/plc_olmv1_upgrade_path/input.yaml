@@ -1,0 +1,25 @@
+query: 'The operator serverless-operator v1.36.1 is installed as OLMv1
+
+  (ClusterExtension-managed) on a cluster targeting OCP 4.21. This
+
+  version is end of life and NOT compatible with OCP 4.21.
+
+
+  Use the product-lifecycle skill with --compatibleonly to find
+
+  compatible versions.
+
+
+  Report whether the current version is compatible, the lifecycle
+
+  status, and which compatible versions are available according to
+
+  the lifecycle data.
+
+  '
+response_schema: '{"type": "object", "properties": {"ocp_compatible": {"type": "boolean", "description":
+  "Whether the currently installed version (1.36.1) is compatible with OCP 4.21"}, "installed_status":
+  {"type": "string", "enum": ["supported", "maintenance", "extended", "end-of-maintenance", "eol", "unknown"],
+  "description": "Normalized lifecycle status of the installed version 1.36"}, "compatible_versions":
+  {"type": "array", "items": {"type": "string"}, "description": "List of PLC major.minor versions compatible
+  with OCP 4.21 (from available_versions)"}}, "required": ["ocp_compatible", "installed_status", "compatible_versions"]}'

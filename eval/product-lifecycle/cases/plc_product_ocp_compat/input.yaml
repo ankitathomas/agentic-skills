@@ -1,0 +1,20 @@
+query: 'Use the product-lifecycle skill to check if any version of
+
+  cluster-logging (product name: "logging for Red Hat OpenShift")
+
+  is compatible with OCP 4.21 and currently in full support or
+
+  maintenance support.
+
+
+  Report whether the product was found and whether any
+
+  OCP 4.21-compatible version is in full support or maintenance support
+
+  (not end of life).
+
+  '
+response_schema: '{"type": "object", "properties": {"product_found": {"type": "boolean", "description":
+  "Whether the product was found in the PLC API"}, "has_supported_compatible_version": {"type": "boolean",
+  "description": "Whether any version compatible with OCP 4.21 is in Full Support or Maintenance Support
+  (not EOL)"}}, "required": ["product_found", "has_supported_compatible_version"]}'

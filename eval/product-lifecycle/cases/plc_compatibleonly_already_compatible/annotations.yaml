@@ -1,0 +1,4 @@
+expected:
+  has_upgrade_path: false
+  installed_status: supported
+  ocp_compatible: true

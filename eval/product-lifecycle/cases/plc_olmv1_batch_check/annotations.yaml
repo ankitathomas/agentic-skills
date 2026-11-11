@@ -1,0 +1,4 @@
+expected:
+  any_incompatible: true
+  operators_checked: 3
+  operators_found: 2

@@ -1,0 +1,6 @@
+expected:
+  decision: warn
+  has_subscription_patch: true
+  platform_update_included: true
+  target_channel: stable-6.5
+requires_plc_invocation: true

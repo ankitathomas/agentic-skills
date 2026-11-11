@@ -1,0 +1,22 @@
+query: 'Use the product-lifecycle skill to check these operators against OCP 4.21.
+
+  The first two are Subscription-managed (OLMv0), the third is
+
+  ClusterExtension-managed (OLMv1):
+
+
+  - openshift-cert-manager-operator v1.20.0 (OLMv0, Subscription)
+
+  - openshift-gitops-operator v1.21.6 (OLMv0, Subscription)
+
+  - openshift-pipelines-operator-rh v1.22.0 (OLMv1, ClusterExtension)
+
+
+  Report the total operators checked and whether all are compatible
+
+  with OCP 4.21.
+
+  '
+response_schema: '{"type": "object", "properties": {"operators_checked": {"type": "integer", "description":
+  "Total number of operators checked"}, "all_compatible": {"type": "boolean", "description": "Whether
+  all operators have ocp_compatible=true for OCP 4.21"}}, "required": ["operators_checked", "all_compatible"]}'

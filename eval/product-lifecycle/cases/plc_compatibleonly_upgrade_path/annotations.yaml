@@ -1,0 +1,4 @@
+expected:
+  has_upgrade_path: true
+  ocp_compatible: false
+  upgrade_catalog: redhat-operators

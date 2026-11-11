@@ -1,0 +1,22 @@
+query: 'Use the product-lifecycle skill to check lifecycle data for these
+
+  OLMv0 (Subscription-managed) operators against OCP 4.21:
+
+
+  - openshift-gitops-operator v1.21.6
+
+  - rhacs-operator v4.10.11
+
+  - grafana-operator v5.21.2
+
+
+  Report how many were checked, how many have lifecycle data in the
+
+  PLC API, and how many are compatible with OCP 4.21.
+
+  '
+response_schema: '{"type": "object", "properties": {"operators_checked": {"type": "integer", "description":
+  "Total number of operators checked"}, "operators_found": {"type": "integer", "description": "Number
+  of operators with lifecycle data in the PLC API (package found, even if version not tracked)"}, "operators_compatible":
+  {"type": "integer", "description": "Number of operators with ocp_compatible=true for OCP 4.21"}}, "required":
+  ["operators_checked", "operators_found", "operators_compatible"]}'

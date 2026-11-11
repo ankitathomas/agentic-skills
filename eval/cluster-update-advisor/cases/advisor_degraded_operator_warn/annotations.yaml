@@ -1,0 +1,4 @@
+expected:
+  blockers_found: 0
+  decision: warn
+  degraded_operator_detected: true

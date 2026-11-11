@@ -1,0 +1,21 @@
+query: 'The operator openshift-gitops-operator v1.21.6 is installed as OLMv0
+
+  (Subscription-managed) on a cluster targeting OCP 4.21. This version is
+
+  believed to be compatible with OCP 4.21.
+
+
+  Use the product-lifecycle skill with --compatibleonly to verify.
+
+
+  Report whether the current version is compatible, its lifecycle status,
+
+  and whether any upgrade is needed.'
+response_schema: '{"type": "object", "properties": {"ocp_compatible": {"type": "boolean", "description":
+  "Whether the currently installed version (1.21.6) is compatible with OCP 4.21"}, "installed_status":
+  {"type": "string", "enum": ["supported", "maintenance", "extended", "end-of-maintenance", "eol", "unknown"],
+  "description": "Normalized lifecycle status of the installed version 1.21"}, "has_upgrade_path": {"type":
+  "boolean", "description": "Whether an upgrade is needed/indicated by the --compatibleonly output for
+  an already-compatible operator (should be false \u2014 no upgrade data is returned for compatible operators)"},
+  "rationale": {"type": "string", "description": "One sentence per finding: what you found, which check
+  it came from, and why it has that severity."}}, "required": ["ocp_compatible", "installed_status", "has_upgrade_path"]}'

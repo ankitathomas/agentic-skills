@@ -1,0 +1,13 @@
+expected:
+  decision: warn
+expected_command_groups:
+- - oc patch
+  - subscriptions.operators.coreos.com
+  - cluster-logging
+  - stable-6.5
+- - oc patch
+  - clusterextensions.olm.operatorframework.io
+  - serverless-operator
+- - oc adm upgrade
+  - 4.21.16
+operator_commands_before_platform: true

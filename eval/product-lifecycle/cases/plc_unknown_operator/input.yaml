@@ -1,0 +1,12 @@
+query: 'Use the product-lifecycle skill to check if istio-workspace-operator
+
+  v0.5.2 is compatible with OCP 4.21. It is an OLMv1 (ClusterExtension)
+
+  operator.
+
+
+  Report whether the product was found in the PLC API.
+
+  '
+response_schema: '{"type": "object", "properties": {"product_found": {"type": "boolean", "description":
+  "Whether istio-workspace-operator was found in the PLC API"}}, "required": ["product_found"]}'

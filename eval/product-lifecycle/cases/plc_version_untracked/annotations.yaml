@@ -1,0 +1,6 @@
+expected:
+  available_versions:
+  - '1.21'
+  - '1.22'
+  product_found: true
+  version_tracked: false

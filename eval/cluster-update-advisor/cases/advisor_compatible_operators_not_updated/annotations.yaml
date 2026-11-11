@@ -1,0 +1,15 @@
+expected:
+  cert_manager_issue_detected: true
+  cert_manager_subscription_patch: false
+  decision: warn
+  gitops_subscription_patch: false
+  operator_upgrades_needed: 0
+  platform_update_command_included: true
+expected_command_groups:
+- - oc adm upgrade
+  - 4.21.16
+forbidden_command_groups:
+- - oc patch subscriptions
+  - openshift-gitops-operator
+- - oc patch subscriptions
+  - cert-manager

@@ -1,0 +1,4 @@
+expected:
+  decision: block
+  etcd_issue_detected: true
+  unhealthy_member: etcd-master-2

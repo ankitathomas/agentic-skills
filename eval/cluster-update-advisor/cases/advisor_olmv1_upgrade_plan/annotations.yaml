@@ -1,0 +1,4 @@
+expected:
+  decision: warn
+  has_clusterextension_patch: true
+  platform_update_included: true

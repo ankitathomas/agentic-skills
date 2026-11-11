@@ -1,0 +1,11 @@
+query: 'Use the product-lifecycle skill to look up the lifecycle status of
+
+  "Red Hat OpenShift Container Platform" version 4.14.
+
+  Report whether it was found and its current lifecycle status.
+
+  '
+response_schema: '{"type": "object", "properties": {"product_found": {"type": "boolean", "description":
+  "Whether OCP 4.14 was found in the PLC API"}, "status": {"type": "string", "enum": ["supported", "maintenance",
+  "extended", "end-of-maintenance", "eol", "unknown"], "description": "Normalized lifecycle status of
+  OCP 4.14"}}, "required": ["product_found", "status"]}'

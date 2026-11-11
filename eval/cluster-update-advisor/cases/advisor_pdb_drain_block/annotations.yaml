@@ -1,0 +1,4 @@
+expected:
+  blockers_found: 1
+  decision: block
+  pdb_blocks_drain: true

@@ -1,0 +1,22 @@
+query: 'The operator cluster-logging v5.9.14 is installed as OLMv0
+
+  (Subscription-managed) on a cluster targeting OCP 4.21. This version
+
+  is NOT compatible with OCP 4.21.
+
+
+  Use the product-lifecycle skill with --compatibleonly to find which
+
+  compatible versions are available to upgrade to.
+
+
+  Report whether the current version is compatible, whether an upgrade
+
+  path exists, and the name of the catalog source providing upgrades.
+
+  '
+response_schema: '{"type": "object", "properties": {"ocp_compatible": {"type": "boolean", "description":
+  "Whether the currently installed version (5.9.14) is compatible with OCP 4.21"}, "has_upgrade_path":
+  {"type": "boolean", "description": "Whether there are compatible versions available to upgrade to in
+  the catalogs"}, "upgrade_catalog": {"type": "string", "description": "Name of the catalog source providing
+  the upgrade versions"}}, "required": ["ocp_compatible", "has_upgrade_path", "upgrade_catalog"]}'

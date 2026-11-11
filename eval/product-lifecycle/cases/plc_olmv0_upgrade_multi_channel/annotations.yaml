@@ -1,0 +1,4 @@
+expected:
+  installed_status: eol
+  ocp_compatible: false
+  upgrade_versions_available: 3

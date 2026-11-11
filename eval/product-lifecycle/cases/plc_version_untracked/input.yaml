@@ -1,0 +1,15 @@
+query: 'Use the product-lifecycle skill to check lifecycle data for the OLMv0
+
+  (Subscription-managed) operator openshift-gitops-operator v9.9.0 against
+
+  OCP 4.21. This version string may not be tracked by the PLC API.
+
+
+  Report whether the product was found in the PLC API, whether the specific
+
+  version is tracked, and which versions the PLC API lists as available.'
+response_schema: '{"type": "object", "properties": {"product_found": {"type": "boolean", "description":
+  "Whether the package exists in the PLC API (distinct from a version being untracked)"}, "version_tracked":
+  {"type": "boolean", "description": "Whether the requested version (9.9) has lifecycle data"}, "available_versions":
+  {"type": "array", "items": {"type": "string"}, "description": "PLC major.minor versions the API lists
+  for this product"}}, "required": ["product_found", "version_tracked", "available_versions"]}'
